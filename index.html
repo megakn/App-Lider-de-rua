@@ -277,8 +277,14 @@ const CICLO_ATIVO_KEY='ciclo-ativo-lider';
 let cicloAtivo=localStorage.getItem(CICLO_ATIVO_KEY)||'AM1';
 function trocarCicloAtivo(c){ cicloAtivo=c; localStorage.setItem(CICLO_ATIVO_KEY,c); vagaSelecionada=null; renderApp(); }
 async function carregarRotas(){
-  try{ const r = await window.storage.get(ROTAS_KEY, true); rotasData = r && r.value ? JSON.parse(r.value) : []; }
-  catch(e){ rotasData = []; }
+  try{
+    const {data,error}=await db.from('planejamento').select('*').eq('data_operacao',hojeISO());
+    if(error) throw error;
+    rotasData=(data||[]).map(planDbLocal);
+  }catch(e){
+    console.error('Erro ao carregar planejamento do Supabase:',e);
+    rotasData=[];
+  }
 }
 
 // A coordenação lê exatamente esta mesma chave.
@@ -286,11 +292,18 @@ let chamadosData = [];
 const CHAMADOS_KEY = 'chamados-ativos';
 const HISTORICO_KEY = 'historico-rotas-vagas';
 async function carregarChamados(){
-  try{ const r = await window.storage.get(CHAMADOS_KEY, true); chamadosData = r && r.value ? JSON.parse(r.value) : []; }
-  catch(e){ chamadosData = []; }
+  try{
+    const {data,error}=await db.from('operacoes_vagas').select('*').eq('data_operacao',hojeISO()).neq('status','FINALIZADA');
+    if(error) throw error;
+    chamadosData=(data||[]).map(opDbLocal);
+  }catch(e){
+    console.error('Erro ao carregar operações do Supabase:',e);
+    chamadosData=[];
+  }
 }
 async function salvarChamados(){
-  try{ await window.storage.set(CHAMADOS_KEY, JSON.stringify(chamadosData), true); }catch(e){}
+  // Compatibilidade: as alterações agora são gravadas diretamente no Supabase.
+  return true;
 }
 function chamadoAtivoNaVaga(num){
   return chamadosData.find(c=>Number(c.vaga)===Number(num) && String(c.status||'rota_na_vaga').toLowerCase()!=='finalizada');
@@ -364,8 +377,9 @@ async function finalizarVaga(num){
 }
 async function carregarTudoCompartilhado(){
   await carregarVinculos();
-  let mudou=false;
-  DEFAULTS_VINCULOS.forEach(d=>{ if(!vinculos.some(v=>v.nome.toUpperCase()===d.nome.toUpperCase())){ vinculos.push(d); mudou=true; } });
+  DEFAULTS_VINCULOS.forEach(d=>{
+    if(!vinculos.some(v=>v.nome.toUpperCase()===d.nome.toUpperCase())) vinculos.push(d);
+  });
   await carregarRotas();
   await carregarChamados();
 }
