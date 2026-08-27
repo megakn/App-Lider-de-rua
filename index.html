@@ -288,12 +288,10 @@ async function trocar(){
 }
 
 // ================= LÍDERES POR RUA (compartilhado com o painel principal) =================
-const LIDERES_KEY = 'lideres-por-rua';
 async function registrarLider(){
-  let lideres = {};
-  try{ if(temWindowStorage()){ const r = await window.storage.get(LIDERES_KEY, true); lideres = r && r.value ? JSON.parse(r.value) : {}; } }catch(e){ lideres = {}; }
-  lideres[sessao.rua] = { nome: sessao.nome, atualizadoEm: Date.now() };
-  try{ if(temWindowStorage()) await window.storage.set(LIDERES_KEY, JSON.stringify(lideres), true); }catch(e){}
+  try{
+    await db.from('lideres_rua').upsert({ rua: sessao.rua, nome: sessao.nome, atualizado_em: new Date().toISOString() }, { onConflict: 'rua' });
+  }catch(e){ console.error('Erro ao registrar líder:', e); }
 }
 
 // ================= VÍNCULOS / ROTAS / OPERAÇÃO (compartilhado com a coordenação) =================
@@ -587,6 +585,7 @@ async function init(){
     await carregarTudoCompartilhado();
     renderApp();
   }, 3000);
+  setInterval(()=>{ if(sessao) registrarLider(); }, 5*60*1000);
 }
 init();
 </script>
