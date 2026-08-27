@@ -278,6 +278,7 @@ async function entrar(){
   renderApp();
 }
 async function trocar(){
+  if(sessao && sessao.rua){ await removerLiderDaRua(sessao.rua); }
   await limparSessao();
   document.getElementById('app').style.display = 'none';
   document.getElementById('entrada').style.display = 'flex';
@@ -292,6 +293,9 @@ async function registrarLider(){
   try{
     await db.from('lideres_rua').upsert({ rua: sessao.rua, nome: sessao.nome, atualizado_em: new Date().toISOString() }, { onConflict: 'rua' });
   }catch(e){ console.error('Erro ao registrar líder:', e); }
+}
+async function removerLiderDaRua(rua){
+  try{ await db.from('lideres_rua').delete().eq('rua', rua); }catch(e){ console.error('Erro ao remover líder da rua:', e); }
 }
 
 // ================= VÍNCULOS / ROTAS / OPERAÇÃO (compartilhado com a coordenação) =================
