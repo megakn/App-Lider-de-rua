@@ -67,6 +67,19 @@
   .status-atual{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;margin-top:2px;}
   .status-atual .dot{width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 1.5px #fff;}
   #statusAcao{font-size:12px;color:var(--muted);margin-top:10px;min-height:16px;}
+  .rota-select-wrap{margin:12px 0 10px;}
+  .rota-select-wrap label{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--navy-700);margin-bottom:6px;}
+  .rota-select{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:10px;background:var(--surface-alt);font:700 13px 'Roboto Mono',monospace;color:var(--navy-900);}
+  .rota-ativa-box{margin:12px 0 10px;padding:12px;border-radius:10px;background:#F0FDF4;border:1px solid #BBF7D0;}
+  .rota-ativa-box.aduana{background:#FAF5FF;border-color:#E9D5FF;}
+  .rota-ativa-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .rota-ativa-top b{font:800 15px 'Roboto Mono',monospace;}
+  .cronometro{font:800 18px 'Roboto Mono',monospace;color:#166534;}
+  .rota-ativa-box.aduana .cronometro{color:#7E22CE;}
+  .meta-processo{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45;}
+  .limite-note{font-size:11px;color:var(--muted);margin-top:6px;}
+  .btn-acao.rota{background:#16A34A;grid-column:1 / -1;}
+  .btn-acao:disabled{opacity:.45;cursor:not-allowed;}
 
   /* ===== Resumo por onda (reaproveitado, mesma lógica do painel principal) ===== */
   .onda-colunas{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:0;padding-bottom:4px;}
@@ -118,7 +131,7 @@
   <div class="kpis-mini" id="kpisMini"></div>
 
   <div class="card">
-    <h2>Marcar vaga</h2>
+    <h2>Operação da vaga</h2>
     <div class="vagas-grid" id="vagasGrid"></div>
     <div class="painel-acao" id="painelAcao" style="display:none;"></div>
   </div>
@@ -240,7 +253,7 @@ async function registrarLider(){
   try{ await window.storage.set(LIDERES_KEY, JSON.stringify(lideres), true); }catch(e){}
 }
 
-// ================= VÍNCULOS / ROTAS / STATUS (compartilhado com o painel principal) =================
+// ================= VÍNCULOS / ROTAS / OPERAÇÃO (compartilhado com a coordenação) =================
 let vinculos = [];
 const VINC_KEY = 'vinculos-transportadoras';
 async function carregarVinculos(){
@@ -257,31 +270,111 @@ async function carregarRotas(){
   catch(e){ rotasData = []; }
 }
 
-let statusOverrides = {};
-const STATUS_KEY = 'status-vagas';
-async function carregarStatusData(){
-  try{ const r = await window.storage.get(STATUS_KEY, true); statusOverrides = r && r.value ? JSON.parse(r.value) : {}; }
-  catch(e){ statusOverrides = {}; }
+// A coordenação lê exatamente esta mesma chave.
+let chamadosData = [];
+const CHAMADOS_KEY = 'chamados-ativos';
+const HISTORICO_KEY = 'historico-rotas-vagas';
+async function carregarChamados(){
+  try{ const r = await window.storage.get(CHAMADOS_KEY, true); chamadosData = r && r.value ? JSON.parse(r.value) : []; }
+  catch(e){ chamadosData = []; }
 }
-async function salvarStatusData(){ try{ await window.storage.set(STATUS_KEY, JSON.stringify(statusOverrides), true); }catch(e){} }
+async function salvarChamados(){
+  try{ await window.storage.set(CHAMADOS_KEY, JSON.stringify(chamadosData), true); }catch(e){}
+}
+function chamadoAtivoNaVaga(num){
+  return chamadosData.find(c=>Number(c.vaga)===Number(num) && String(c.status||'rota_na_vaga').toLowerCase()!=='finalizada');
+}
+function chamadoAtivoDaRota(nRota){
+  return chamadosData.find(c=>String(c.nRota||'')===String(nRota||'') && String(c.status||'rota_na_vaga').toLowerCase()!=='finalizada');
+}
 function getStatus(num){
-  if(statusOverrides[num]) return statusOverrides[num];
-  const vaga = vagasData.find(v=>v.num===num);
-  if(!vaga || vaga.sigla==='VUC') return 'livre';
-  const temRota = rotasData.some(r=> (vinculoPorTransportadora(r.transportadora)||{}).sigla === vaga.sigla );
-  return temRota ? 'ocupado' : 'livre';
+  const c=chamadoAtivoNaVaga(num);
+  if(!c) return 'livre';
+  return String(c.status||'rota_na_vaga').toLowerCase()==='aduana' ? 'aduana' : 'ocupado';
 }
-async function setStatus(num, status){
-  statusOverrides[num] = status;
-  await salvarStatusData();
-  document.getElementById('statusAcao').textContent = `Vaga ${num} marcada como "${STATUS_INFO[status].label}".`;
+function inicioDaVaga(c){ return Number(c && (c.inicioVaga||c.chegouEm||c.criadoEm)) || Date.now(); }
+function tempoNaVagaMs(c){ return Math.max(0, Date.now()-inicioDaVaga(c)); }
+function formatarTempo(ms){
+  const total=Math.floor(ms/1000), min=Math.floor(total/60), seg=total%60;
+  return `${String(min).padStart(2,'0')}:${String(seg).padStart(2,'0')}`;
+}
+function transportadoraDaVaga(vaga){
+  if(!vaga) return '';
+  if(vaga.sigla==='VUC') return 'EXPEDIÇÃO / VUC';
+  const vinc=vinculos.find(v=>v.sigla===vaga.sigla);
+  return vinc ? vinc.nome : vaga.sigla;
+}
+function rotasDisponiveisParaVaga(vaga){
+  if(!vaga) return [];
+  const vinc=vinculos.find(v=>v.sigla===vaga.sigla);
+  if(!vinc) return [];
+  const nome=vinc.nome.toUpperCase().trim();
+  const unicas=new Map();
+  rotasData
+    .filter(r=>String(r.transportadora||'').toUpperCase().trim()===nome)
+    .forEach(r=>{
+      const chave=String(r.nRota||'').trim();
+      if(!chave) return;
+      if(!unicas.has(chave)) unicas.set(chave,r);
+    });
+  return [...unicas.values()]
+    .filter(r=>!chamadoAtivoDaRota(r.nRota))
+    .sort((a,b)=>String(a.onda||'').localeCompare(String(b.onda||''),'pt-BR',{numeric:true}) || String(a.nRota).localeCompare(String(b.nRota),'pt-BR',{numeric:true}));
+}
+async function iniciarRotaNaVaga(num){
+  const vaga=vagasData.find(v=>v.num===Number(num));
+  const sel=document.getElementById('rotaSelecionada');
+  const nRota=sel ? sel.value : '';
+  if(!vaga || !nRota){ document.getElementById('statusAcao').textContent='Escolha a rota antes de confirmar a vaga.'; return; }
+  if(chamadoAtivoNaVaga(num)){ document.getElementById('statusAcao').textContent='Esta vaga já está ocupada.'; return; }
+  const ja=chamadoAtivoDaRota(nRota);
+  if(ja){ document.getElementById('statusAcao').textContent=`A rota ${nRota} já está na vaga ${ja.vaga}.`; return; }
+  const rota=rotasData.find(r=>r.nRota===nRota) || {};
+  const agora=Date.now();
+  chamadosData.push({
+    id: agora+'-'+Math.random().toString(36).slice(2,7),
+    rua: vaga.rua,
+    vaga: vaga.num,
+    sigla: vaga.sigla,
+    transportadora: transportadoraDaVaga(vaga),
+    nRota,
+    onda: rota.onda||'',
+    parada: rota.parada||'',
+    bairros: rota.bairros||rota.ponto||'',
+    cluster: rota.cluster||'',
+    modal: rota.modal||'',
+    dataExp: rota.dataExp||'',
+    rotaPlanejamento: rota.rotaPlanejamento||'',
+    status:'rota_na_vaga',
+    inicioVaga:agora,
+    criadoEm:agora,
+    lider:sessao ? sessao.nome : ''
+  });
+  await salvarChamados();
   renderApp();
+  const st=document.getElementById('statusAcao'); if(st) st.textContent=`Rota ${nRota} confirmada na vaga ${num}. Cronômetro iniciado.`;
+}
+async function marcarAduana(num){
+  const c=chamadoAtivoNaVaga(num);
+  if(!c){ const st=document.getElementById('statusAcao'); if(st) st.textContent='Primeiro confirme a rota nesta vaga.'; return; }
+  c.status='aduana'; c.aduanaEm=Date.now(); c.aduanaPor=sessao ? sessao.nome : '';
+  await salvarChamados();
+  renderApp();
+  const st=document.getElementById('statusAcao'); if(st) st.textContent=`Rota ${c.nRota} enviada para Aduana.`;
 }
 async function finalizarVaga(num){
-  delete statusOverrides[num];
-  await salvarStatusData();
-  document.getElementById('statusAcao').textContent = `Vaga ${num} finalizada — voltou a ficar livre.`;
-  vagaSelecionada = null;
+  const c=chamadoAtivoNaVaga(num);
+  if(!c){ const st=document.getElementById('statusAcao'); if(st) st.textContent='Esta vaga já está livre.'; return; }
+  const finalizado={...c,status:'finalizada',finalizadoEm:Date.now(),finalizadoPor:sessao ? sessao.nome : ''};
+  try{
+    const r=await window.storage.get(HISTORICO_KEY,true);
+    const hist=r&&r.value?JSON.parse(r.value):[];
+    hist.push(finalizado);
+    await window.storage.set(HISTORICO_KEY,JSON.stringify(hist.slice(-2000)),true);
+  }catch(e){}
+  chamadosData=chamadosData.filter(x=>x.id!==c.id);
+  await salvarChamados();
+  vagaSelecionada=null;
   renderApp();
 }
 
@@ -290,7 +383,7 @@ async function carregarTudoCompartilhado(){
   let mudou=false;
   DEFAULTS_VINCULOS.forEach(d=>{ if(!vinculos.some(v=>v.nome.toUpperCase()===d.nome.toUpperCase())){ vinculos.push(d); mudou=true; } });
   await carregarRotas();
-  await carregarStatusData();
+  await carregarChamados();
 }
 
 // ================= UI: VAGAS DA RUA =================
@@ -308,9 +401,11 @@ function renderVagasGrid(){
     const st = getStatus(v.num);
     const info = STATUS_INFO[st];
     const sel = v.num===vagaSelecionada ? 'selecionada' : '';
+    const ativo=chamadoAtivoNaVaga(v.num);
+    const extra=ativo ? `<span style="display:block;font-size:7px;font-weight:800;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ativo.nRota||'')}</span><span style="display:block;font-size:8px;font-weight:800;margin-top:1px">${formatarTempo(tempoNaVagaMs(ativo))}</span>` : '';
     return `<div class="vaga-chip ${sel}" style="background:${cor.bg};color:${cor.fg}" onclick="selecionarVaga(${v.num})">
       <span class="vaga-dot" style="background:${info.hex}"></span>
-      <span class="num">${v.num}</span><span class="sigla">${v.sigla}</span>
+      <span class="num">${v.num}</span><span class="sigla">${v.sigla}</span>${extra}
     </div>`;
   }).join('');
 }
@@ -318,34 +413,52 @@ function renderPainelAcao(){
   const el = document.getElementById('painelAcao');
   if(vagaSelecionada===null){ el.style.display='none'; el.innerHTML=''; return; }
   const vaga = vagasData.find(v=>v.num===vagaSelecionada);
-  const vinc = vinculos.find(v=>v.sigla===vaga.sigla);
-  const st = getStatus(vaga.num);
-  const info = STATUS_INFO[st];
+  const transp=transportadoraDaVaga(vaga);
+  const ativo=chamadoAtivoNaVaga(vaga.num);
   el.style.display = 'block';
+  if(ativo){
+    const aduana=String(ativo.status||'').toLowerCase()==='aduana';
+    el.innerHTML = `
+      <div class="titulo-vaga">Vaga ${vaga.num} · ${vaga.sigla}</div>
+      <div class="info-vaga">${escapeHtml(transp)} · ${escapeHtml(vaga.rua)}</div>
+      <div class="rota-ativa-box ${aduana?'aduana':''}">
+        <div class="rota-ativa-top"><b>${escapeHtml(ativo.nRota||'—')}</b><span class="cronometro" data-cronometro-vaga="${vaga.num}">${formatarTempo(tempoNaVagaMs(ativo))}</span></div>
+        <div class="meta-processo"><b>${aduana?'ADUANA':'ROTA NA VAGA'}</b><br>${ativo.onda?escapeHtml(ativo.onda)+' · ':''}${ativo.parada?escapeHtml(ativo.parada)+' paradas · ':''}Tempo total ocupando a vaga · limite operacional 30 min${ativo.bairros?`<br><span style="font-weight:600">Bairros: ${escapeHtml(ativo.bairros)}</span>`:''}</div>
+      </div>
+      <div class="acoes-grid">
+        <button class="btn-acao aduana" onclick="marcarAduana(${vaga.num})">Aduana<br>(conferência LOG)</button>
+        <button class="btn-acao finalizar" onclick="finalizarVaga(${vaga.num})">Finalizar rota — liberar vaga</button>
+      </div>
+      <div id="statusAcao"></div>`;
+    return;
+  }
+  const rotas=rotasDisponiveisParaVaga(vaga);
   el.innerHTML = `
     <div class="titulo-vaga">Vaga ${vaga.num} · ${vaga.sigla}</div>
-    <div class="info-vaga">${vinc ? escapeHtml(vinc.nome) : 'Sem transportadora vinculada'}</div>
-    <div class="status-atual"><span class="dot" style="background:${info.hex}"></span> Status atual: ${info.label}</div>
-    <div class="acoes-grid" style="margin-top:12px;">
-      <button class="btn-acao chegou" onclick="setStatus(${vaga.num},'ocupado')">Cheguei</button>
-      <button class="btn-acao aduana" onclick="setStatus(${vaga.num},'aduana')">Aduana<br>(recontagem)</button>
-      <button class="btn-acao separacao" onclick="setStatus(${vaga.num},'separacao')">Em separação</button>
-      <button class="btn-acao problema" onclick="setStatus(${vaga.num},'problema')">Problema</button>
-      <button class="btn-acao finalizar" onclick="finalizarVaga(${vaga.num})">Finalizar — liberar vaga</button>
+    <div class="info-vaga">${escapeHtml(transp)} · ${escapeHtml(vaga.rua)} · Vaga livre</div>
+    <div class="rota-select-wrap">
+      <label>Rota que chegou nesta vaga</label>
+      <select id="rotaSelecionada" class="rota-select">
+        <option value="">— selecione a rota —</option>
+        ${rotas.map(r=>`<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}</option>`).join('')}
+      </select>
+      <div class="limite-note">Só aparecem rotas da transportadora desta vaga que ainda não estão ocupando outra posição.</div>
     </div>
-    <div id="statusAcao"></div>
-  `;
+    <div class="acoes-grid">
+      <button class="btn-acao rota" onclick="iniciarRotaNaVaga(${vaga.num})" ${rotas.length?'':'disabled'}>Confirmar ROTA NA VAGA · iniciar 30 min</button>
+    </div>
+    <div id="statusAcao">${rotas.length?'':'Nenhuma rota disponível para esta transportadora.'}</div>`;
 }
 function renderKpisMini(){
   const vagas = vagasData.filter(v=>v.rua===sessao.rua);
-  const counts = {livre:0, ocupado:0, aduana:0, problema:0};
-  vagas.forEach(v=>{ const s=getStatus(v.num); if(counts[s]===undefined) counts[s]=0; counts[s]++; });
+  const ocupadas=vagas.filter(v=>!!chamadoAtivoNaVaga(v.num)).length;
+  const aduana=vagas.filter(v=>{const c=chamadoAtivoNaVaga(v.num);return c&&String(c.status||'').toLowerCase()==='aduana';}).length;
+  const livres=vagas.length-ocupadas;
   document.getElementById('kpisMini').innerHTML = `
     <div class="kpi-mini"><div class="n">${vagas.length}</div><div class="l">Vagas</div></div>
-    <div class="kpi-mini"><div class="n">${counts.ocupado}</div><div class="l">Ocupadas</div></div>
-    <div class="kpi-mini"><div class="n">${counts.aduana}</div><div class="l">Aduana</div></div>
-    <div class="kpi-mini"><div class="n">${counts.livre}</div><div class="l">Livres</div></div>
-  `;
+    <div class="kpi-mini"><div class="n">${ocupadas}</div><div class="l">Em processo</div></div>
+    <div class="kpi-mini"><div class="n">${aduana}</div><div class="l">Aduana</div></div>
+    <div class="kpi-mini"><div class="n">${livres}</div><div class="l">Livres</div></div>`;
 }
 
 // ================= RESUMO POR ONDA (só a rua da líder) =================
@@ -422,11 +535,19 @@ async function init(){
     mostrarApp();
     renderApp();
   }
+  setInterval(()=>{
+    if(!sessao) return;
+    document.querySelectorAll('[data-cronometro-vaga]').forEach(el=>{
+      const c=chamadoAtivoNaVaga(Number(el.dataset.cronometroVaga));
+      if(c) el.textContent=formatarTempo(tempoNaVagaMs(c));
+    });
+    renderVagasGrid();
+  }, 1000);
   setInterval(async ()=>{
     if(!sessao) return;
     await carregarTudoCompartilhado();
     renderApp();
-  }, 6000);
+  }, 3000);
 }
 init();
 </script>
