@@ -136,7 +136,7 @@
 
   <div class="ciclo-bar"><label>Ciclo em operação</label><select id="cicloAtivoSelect" onchange="trocarCicloAtivo(this.value)"><option>AM1</option><option>PM1</option><option>SD</option><option>CHP</option></select></div>
 
-  <div class="kpis-mini" id="kpisMini"></div><div id="syncBanco" style="font-size:10px;color:var(--muted);text-align:right;margin:-7px 0 12px"></div>
+  <div class="kpis-mini" id="kpisMini"></div>
 
   <div class="card">
     <h2>Operação da vaga</h2>
@@ -151,84 +151,27 @@
 </div>
 
 <script>
-
-// ================= SUPABASE - CONEXÃO COMPARTILHADA =================
+// ================= SUPABASE =================
 const SUPABASE_URL = 'https://cnpcsovjomonctbggbac.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_1lqP4jYYMR96Aq8DX-DSHA_JKcGESRt';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-function hojeLocalISO(){
-  const d=new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
+function hojeISO(){ return new Date().toISOString().slice(0,10); }
 function planDbLocal(r){
   return {
-    nRota:r.rota||'',
-    ciclo:String(r.ciclo||'').toUpperCase(),
-    transportadora:String(r.transportadora||'').toUpperCase(),
-    onda:r.onda||'',
-    parada:r.paradas||'',
-    bairros:r.bairros||'',
-    cluster:r.cluster||'',
-    modal:r.modal||'',
-    rua:r.rua||'',
-    dataOperacao:r.data_operacao||'',
-    tipoOperacao:r.is_saca ? 'SACA' : 'ROTA'
+    nRota:r.rota||'', ciclo:r.ciclo||'', tipoOperacao:r.is_saca?'SACA':'ROTA',
+    transportadora:(r.transportadora||'').toUpperCase(), onda:r.onda||'',
+    parada:r.paradas||'', ponto:r.bairros||'', bairros:r.bairros||'',
+    cluster:r.cluster||'', modal:r.modal||'', dataExp:r.data_operacao||'',
+    origem:'SUPABASE'
   };
 }
-
 function opDbLocal(r){
   return {
     id:r.id, rua:r.rua, vaga:r.vaga, transportadora:r.transportadora,
-    nRota:r.rota, ciclo:r.ciclo,
-    status:r.status==='ADUANA'?'aduana':'rota_na_vaga',
-    inicioVaga:new Date(r.entrada_em).getTime(),
-    criadoEm:new Date(r.entrada_em).getTime(),
-    lider:r.lider||'',
-    aduanaEm:r.aduana_em ? new Date(r.aduana_em).getTime() : null
+    nRota:r.rota, ciclo:r.ciclo, status:r.status==='ADUANA'?'aduana':'rota_na_vaga',
+    inicioVaga:new Date(r.entrada_em).getTime(), criadoEm:new Date(r.entrada_em).getTime(),
+    lider:r.lider||'', aduanaEm:r.aduana_em?new Date(r.aduana_em).getTime():null
   };
-}
-
-function normalizarTransportadora(v){
-  return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-    .toUpperCase().replace(/[^A-Z0-9]/g,'');
-}
-
-const ALIASES_TRANSPORTADORA = {
-  DC:['DECARGO'],
-  CM:['COOPMETRO'],
-  OT:['ONTIME','ONTIMESERVICOS'],
-  EC:['ECOEXPRESS'],
-  AL:['ALC','ALCTRANSPORTES'],
-  HW:['HAWK','HAWKTRANSPORTES'],
-  DL:['DELUNA'],
-  MS:['MJSIMOES','MJTRANSPORTES'],
-  PC:['PARCEIRO','PARCEIROSPOTSOLUCOES'],
-  KG:['KANGU','KANGULOGISTICS'],
-  ME:['MELIEXTRA','ENVIOSEXTRA'],
-  PL:['PRALOG']
-};
-
-function siglaTransportadora(nome){
-  const n=normalizarTransportadora(nome);
-  for(const [sigla,aliases] of Object.entries(ALIASES_TRANSPORTADORA)){
-    if(aliases.some(a=>n===a || n.includes(a))) return sigla;
-  }
-  return '';
-}
-
-async function carregarSupabaseLider(){
-  await carregarRotas();
-  await carregarChamados();
-  if(sessao) renderApp();
-}
-
-function iniciarRealtimeLider(){
-  db.channel('svc-lider')
-    .on('postgres_changes',{event:'*',schema:'public',table:'planejamento'},()=>carregarSupabaseLider())
-    .on('postgres_changes',{event:'*',schema:'public',table:'operacoes_vagas'},()=>carregarSupabaseLider())
-    .subscribe();
 }
 
 // ================= DADOS BASE (espelha o app principal) =================
@@ -358,29 +301,9 @@ let cicloAtivo=localStorage.getItem(CICLO_ATIVO_KEY)||'AM1';
 function trocarCicloAtivo(c){ cicloAtivo=c; localStorage.setItem(CICLO_ATIVO_KEY,c); vagaSelecionada=null; renderApp(); }
 async function carregarRotas(){
   try{
-    const {data,error}=await db.from('planejamento')
-      .select('*')
-      .order('data_operacao',{ascending:false})
-      .order('criado_em',{ascending:false})
-      .limit(5000);
+    const {data,error}=await db.from('planejamento').select('*').eq('data_operacao',hojeISO());
     if(error) throw error;
-
-    const rows=data||[];
-    if(!rows.length){ rotasData=[]; return; }
-
-    // Usa o planejamento mais recente de cada ciclo.
-    const ultimaData={};
-    rows.forEach(r=>{
-      const c=String(r.ciclo||'').toUpperCase();
-      const d=String(r.data_operacao||'');
-      if(c && (!ultimaData[c] || d>ultimaData[c])) ultimaData[c]=d;
-    });
-
-    rotasData=rows
-      .filter(r=>String(r.data_operacao||'')===ultimaData[String(r.ciclo||'').toUpperCase()])
-      .map(planDbLocal);
-
-    console.log('Planejamento carregado:',rotasData.length,'linhas');
+    rotasData=(data||[]).map(planDbLocal);
   }catch(e){
     console.error('Erro ao carregar planejamento do Supabase:',e);
     rotasData=[];
@@ -393,11 +316,7 @@ const CHAMADOS_KEY = 'chamados-ativos';
 const HISTORICO_KEY = 'historico-rotas-vagas';
 async function carregarChamados(){
   try{
-    const {data,error}=await db.from('operacoes_vagas')
-      .select('*')
-      .neq('status','FINALIZADA')
-      .order('entrada_em',{ascending:false})
-      .limit(1000);
+    const {data,error}=await db.from('operacoes_vagas').select('*').eq('data_operacao',hojeISO()).neq('status','FINALIZADA');
     if(error) throw error;
     chamadosData=(data||[]).map(opDbLocal);
   }catch(e){
@@ -434,25 +353,20 @@ function transportadoraDaVaga(vaga){
 }
 function rotasDisponiveisParaVaga(vaga){
   if(!vaga) return [];
+  const vinc=vinculos.find(v=>v.sigla===vaga.sigla);
+  if(!vinc) return [];
+  const nome=vinc.nome.toUpperCase().trim();
   const unicas=new Map();
-
   rotasData
-    .filter(r=>
-      siglaTransportadora(r.transportadora)===vaga.sigla &&
-      String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() &&
-      String(r.tipoOperacao||'ROTA').toUpperCase()!=='SACA'
-    )
+    .filter(r=>String(r.transportadora||'').toUpperCase().trim()===nome && String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() && String(r.tipoOperacao||'ROTA').toUpperCase()!=='SACA')
     .forEach(r=>{
       const chave=String(r.nRota||'').trim();
-      if(chave && !unicas.has(chave)) unicas.set(chave,r);
+      if(!chave) return;
+      if(!unicas.has(chave)) unicas.set(chave,r);
     });
-
   return [...unicas.values()]
     .filter(r=>!chamadoAtivoDaRota(r.nRota))
-    .sort((a,b)=>
-      String(a.onda||'').localeCompare(String(b.onda||''),'pt-BR',{numeric:true}) ||
-      String(a.nRota||'').localeCompare(String(b.nRota||''),'pt-BR',{numeric:true})
-    );
+    .sort((a,b)=>String(a.onda||'').localeCompare(String(b.onda||''),'pt-BR',{numeric:true}) || String(a.nRota).localeCompare(String(b.nRota),'pt-BR',{numeric:true}));
 }
 async function iniciarRotaNaVaga(num){
   const vaga=vagasData.find(v=>v.num===Number(num));
@@ -462,7 +376,7 @@ async function iniciarRotaNaVaga(num){
   if(!vaga||!nRota){if(st)st.textContent='Escolha a rota antes de confirmar a vaga.';return;}
   const rota=rotasData.find(r=>r.nRota===nRota&&String(r.ciclo).toUpperCase()===String(cicloAtivo).toUpperCase())||{};
   const {error}=await db.from('operacoes_vagas').insert({
-    data_operacao:hojeLocalISO(),ciclo:rota.ciclo||cicloAtivo,rua:vaga.rua,
+    data_operacao:hojeISO(),ciclo:rota.ciclo||cicloAtivo,rua:vaga.rua,
     transportadora:transportadoraDaVaga(vaga),rota:nRota,vaga:vaga.num,
     lider:sessao?sessao.nome:'',status:'NA_VAGA',entrada_em:new Date().toISOString()
   });
@@ -557,12 +471,6 @@ function renderPainelAcao(){
     <div id="statusAcao">${rotas.length?'':'Nenhuma rota disponível desta transportadora no ciclo selecionado.'}</div>`;
 }
 function renderKpisMini(){
-  const sync=document.getElementById('syncBanco');
-  if(sync){
-    const qtd=rotasData.filter(r=>String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() && String(r.tipoOperacao||'ROTA').toUpperCase()!=='SACA').length;
-    sync.textContent=`Banco conectado · ${cicloAtivo}: ${qtd} rota(s)`;
-  }
-
   const vagas = vagasData.filter(v=>v.rua===sessao.rua);
   const ocupadas=vagas.filter(v=>!!chamadoAtivoNaVaga(v.num)).length;
   const aduana=vagas.filter(v=>{const c=chamadoAtivoNaVaga(v.num);return c&&String(c.status||'').toLowerCase()==='aduana';}).length;
@@ -667,6 +575,17 @@ async function init(){
 init();
 </script>
 <script>
+async function carregarSupabaseLider(){
+  if(!sessao) return;
+  await carregarTudoCompartilhado();
+  renderApp();
+}
+function iniciarRealtimeLider(){
+  db.channel('svc-lider')
+    .on('postgres_changes',{event:'*',schema:'public',table:'planejamento'},()=>carregarSupabaseLider())
+    .on('postgres_changes',{event:'*',schema:'public',table:'operacoes_vagas'},()=>carregarSupabaseLider())
+    .subscribe();
+}
 document.addEventListener('DOMContentLoaded',()=>setTimeout(async()=>{await carregarSupabaseLider();iniciarRealtimeLider();},600));
 </script>
 </body>
