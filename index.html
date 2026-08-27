@@ -225,16 +225,26 @@ let sessao = null; // {rua, nome}
 const SESSAO_KEY = 'sessao-lider-rua';
 let ruaEscolhida = null;
 
+function lsGet(key, fallback){
+  try{ const v = localStorage.getItem(key); return v!==null ? JSON.parse(v) : fallback; }catch(e){ return fallback; }
+}
+function lsSet(key, value){ try{ localStorage.setItem(key, JSON.stringify(value)); }catch(e){} }
+function temWindowStorage(){ return typeof window.storage!=='undefined' && window.storage && typeof window.storage.get==='function'; }
+
 async function carregarSessao(){
-  try{ const r = await window.storage.get(SESSAO_KEY, false); sessao = r && r.value ? JSON.parse(r.value) : null; }
-  catch(e){ sessao = null; }
+  try{
+    if(temWindowStorage()){ const r = await window.storage.get(SESSAO_KEY, false); sessao = r && r.value ? JSON.parse(r.value) : null; }
+    else sessao = lsGet(SESSAO_KEY, null);
+  }catch(e){ sessao = lsGet(SESSAO_KEY, null); }
 }
 async function salvarSessao(){
-  try{ await window.storage.set(SESSAO_KEY, JSON.stringify(sessao), false); }catch(e){}
+  try{ if(temWindowStorage()) await window.storage.set(SESSAO_KEY, JSON.stringify(sessao), false); }catch(e){}
+  lsSet(SESSAO_KEY, sessao);
 }
 async function limparSessao(){
   sessao = null;
-  try{ await window.storage.delete(SESSAO_KEY, false); }catch(e){}
+  try{ if(temWindowStorage()) await window.storage.delete(SESSAO_KEY, false); }catch(e){}
+  try{ localStorage.removeItem(SESSAO_KEY); }catch(e){}
 }
 
 function popularRuaOpcoes(){
@@ -263,7 +273,9 @@ async function entrar(){
   sessao = { rua: ruaEscolhida, nome };
   await salvarSessao();
   await registrarLider();
+  await carregarTudoCompartilhado();
   mostrarApp();
+  renderApp();
 }
 async function trocar(){
   await limparSessao();
@@ -279,17 +291,21 @@ async function trocar(){
 const LIDERES_KEY = 'lideres-por-rua';
 async function registrarLider(){
   let lideres = {};
-  try{ const r = await window.storage.get(LIDERES_KEY, true); lideres = r && r.value ? JSON.parse(r.value) : {}; }catch(e){ lideres = {}; }
+  try{ if(temWindowStorage()){ const r = await window.storage.get(LIDERES_KEY, true); lideres = r && r.value ? JSON.parse(r.value) : {}; } }catch(e){ lideres = {}; }
   lideres[sessao.rua] = { nome: sessao.nome, atualizadoEm: Date.now() };
-  try{ await window.storage.set(LIDERES_KEY, JSON.stringify(lideres), true); }catch(e){}
+  try{ if(temWindowStorage()) await window.storage.set(LIDERES_KEY, JSON.stringify(lideres), true); }catch(e){}
 }
 
 // ================= VÍNCULOS / ROTAS / OPERAÇÃO (compartilhado com a coordenação) =================
 let vinculos = [];
 const VINC_KEY = 'vinculos-transportadoras';
 async function carregarVinculos(){
-  try{ const r = await window.storage.get(VINC_KEY, true); vinculos = r && r.value ? JSON.parse(r.value) : []; }
-  catch(e){ vinculos = []; }
+  try{
+    if(temWindowStorage()){ const r = await window.storage.get(VINC_KEY, true); vinculos = r && r.value ? JSON.parse(r.value) : []; }
+    else vinculos = lsGet(VINC_KEY, []);
+  }catch(e){ vinculos = lsGet(VINC_KEY, []); }
+  // Se não veio nada de nenhuma fonte, usa os vínculos padrão pra nunca ficar sem mapear as siglas.
+  if(!vinculos || !vinculos.length) vinculos = DEFAULTS_VINCULOS.slice();
 }
 function vinculoPorTransportadora(nome){ const up=(nome||'').toUpperCase().trim(); return vinculos.find(v=>v.nome.toUpperCase()===up); }
 function ruaDaSigla(sigla){ const item = vagasData.find(v=>v.sigla===sigla); return item ? item.rua : RUA_SEM_VAGA; }
