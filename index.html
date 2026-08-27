@@ -98,7 +98,13 @@
   .resumo-table th{color:var(--muted);font-weight:700;text-transform:uppercase;font-size:9.5px;letter-spacing:.05em;}
   .resumo-table td.rota{font-family:'Roboto Mono',monospace;font-weight:700;}
   .resumo-table td.parada{color:var(--teal-600);font-weight:700;}
+
+  .ciclo-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 10px;margin-bottom:12px;}
+  .ciclo-bar label{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--muted);letter-spacing:.05em;}
+  .ciclo-bar select{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-weight:800;color:var(--navy-900);background:var(--surface-alt);}
+
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -127,6 +133,8 @@
     </div>
     <button class="trocar" onclick="trocar()">Trocar</button>
   </header>
+
+  <div class="ciclo-bar"><label>Ciclo em operação</label><select id="cicloAtivoSelect" onchange="trocarCicloAtivo(this.value)"><option>AM1</option><option>PM1</option><option>SD</option><option>CHP</option></select></div>
 
   <div class="kpis-mini" id="kpisMini"></div>
 
@@ -265,6 +273,9 @@ function ruaDaSigla(sigla){ const item = vagasData.find(v=>v.sigla===sigla); ret
 
 let rotasData = [];
 const ROTAS_KEY = 'rotas-importadas';
+const CICLO_ATIVO_KEY='ciclo-ativo-lider';
+let cicloAtivo=localStorage.getItem(CICLO_ATIVO_KEY)||'AM1';
+function trocarCicloAtivo(c){ cicloAtivo=c; localStorage.setItem(CICLO_ATIVO_KEY,c); vagaSelecionada=null; renderApp(); }
 async function carregarRotas(){
   try{ const r = await window.storage.get(ROTAS_KEY, true); rotasData = r && r.value ? JSON.parse(r.value) : []; }
   catch(e){ rotasData = []; }
@@ -311,7 +322,7 @@ function rotasDisponiveisParaVaga(vaga){
   const nome=vinc.nome.toUpperCase().trim();
   const unicas=new Map();
   rotasData
-    .filter(r=>String(r.transportadora||'').toUpperCase().trim()===nome)
+    .filter(r=>String(r.transportadora||'').toUpperCase().trim()===nome && String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() && String(r.tipoOperacao||'ROTA').toUpperCase()!=='SACA')
     .forEach(r=>{
       const chave=String(r.nRota||'').trim();
       if(!chave) return;
@@ -324,60 +335,33 @@ function rotasDisponiveisParaVaga(vaga){
 async function iniciarRotaNaVaga(num){
   const vaga=vagasData.find(v=>v.num===Number(num));
   const sel=document.getElementById('rotaSelecionada');
-  const nRota=sel ? sel.value : '';
-  if(!vaga || !nRota){ document.getElementById('statusAcao').textContent='Escolha a rota antes de confirmar a vaga.'; return; }
-  if(chamadoAtivoNaVaga(num)){ document.getElementById('statusAcao').textContent='Esta vaga já está ocupada.'; return; }
-  const ja=chamadoAtivoDaRota(nRota);
-  if(ja){ document.getElementById('statusAcao').textContent=`A rota ${nRota} já está na vaga ${ja.vaga}.`; return; }
-  const rota=rotasData.find(r=>r.nRota===nRota) || {};
-  const agora=Date.now();
-  chamadosData.push({
-    id: agora+'-'+Math.random().toString(36).slice(2,7),
-    rua: vaga.rua,
-    vaga: vaga.num,
-    sigla: vaga.sigla,
-    transportadora: transportadoraDaVaga(vaga),
-    nRota,
-    onda: rota.onda||'',
-    parada: rota.parada||'',
-    bairros: rota.bairros||rota.ponto||'',
-    cluster: rota.cluster||'',
-    modal: rota.modal||'',
-    dataExp: rota.dataExp||'',
-    rotaPlanejamento: rota.rotaPlanejamento||'',
-    status:'rota_na_vaga',
-    inicioVaga:agora,
-    criadoEm:agora,
-    lider:sessao ? sessao.nome : ''
+  const nRota=sel?sel.value:'';
+  const st=document.getElementById('statusAcao');
+  if(!vaga||!nRota){if(st)st.textContent='Escolha a rota antes de confirmar a vaga.';return;}
+  const rota=rotasData.find(r=>r.nRota===nRota&&String(r.ciclo).toUpperCase()===String(cicloAtivo).toUpperCase())||{};
+  const {error}=await db.from('operacoes_vagas').insert({
+    data_operacao:hojeISO(),ciclo:rota.ciclo||cicloAtivo,rua:vaga.rua,
+    transportadora:transportadoraDaVaga(vaga),rota:nRota,vaga:vaga.num,
+    lider:sessao?sessao.nome:'',status:'NA_VAGA',entrada_em:new Date().toISOString()
   });
-  await salvarChamados();
-  renderApp();
-  const st=document.getElementById('statusAcao'); if(st) st.textContent=`Rota ${nRota} confirmada na vaga ${num}. Cronômetro iniciado.`;
+  if(error){if(st)st.textContent='Não foi possível colocar a rota na vaga: '+error.message;return;}
+  await carregarSupabaseLider();
+  if(st)st.textContent=`Rota ${nRota} confirmada na vaga ${num}. Cronômetro iniciado.`;
 }
 async function marcarAduana(num){
-  const c=chamadoAtivoNaVaga(num);
-  if(!c){ const st=document.getElementById('statusAcao'); if(st) st.textContent='Primeiro confirme a rota nesta vaga.'; return; }
-  c.status='aduana'; c.aduanaEm=Date.now(); c.aduanaPor=sessao ? sessao.nome : '';
-  await salvarChamados();
-  renderApp();
-  const st=document.getElementById('statusAcao'); if(st) st.textContent=`Rota ${c.nRota} enviada para Aduana.`;
+  const c=chamadoAtivoNaVaga(num),st=document.getElementById('statusAcao');
+  if(!c){if(st)st.textContent='Primeiro confirme a rota nesta vaga.';return;}
+  const {error}=await db.from('operacoes_vagas').update({status:'ADUANA',aduana_em:new Date().toISOString()}).eq('id',c.id);
+  if(error){if(st)st.textContent='Erro ao marcar Aduana: '+error.message;return;}
+  await carregarSupabaseLider();
 }
 async function finalizarVaga(num){
-  const c=chamadoAtivoNaVaga(num);
-  if(!c){ const st=document.getElementById('statusAcao'); if(st) st.textContent='Esta vaga já está livre.'; return; }
-  const finalizado={...c,status:'finalizada',finalizadoEm:Date.now(),finalizadoPor:sessao ? sessao.nome : ''};
-  try{
-    const r=await window.storage.get(HISTORICO_KEY,true);
-    const hist=r&&r.value?JSON.parse(r.value):[];
-    hist.push(finalizado);
-    await window.storage.set(HISTORICO_KEY,JSON.stringify(hist.slice(-2000)),true);
-  }catch(e){}
-  chamadosData=chamadosData.filter(x=>x.id!==c.id);
-  await salvarChamados();
-  vagaSelecionada=null;
-  renderApp();
+  const c=chamadoAtivoNaVaga(num),st=document.getElementById('statusAcao');
+  if(!c){if(st)st.textContent='Esta vaga já está livre.';return;}
+  const {error}=await db.from('operacoes_vagas').update({status:'FINALIZADA',finalizada_em:new Date().toISOString()}).eq('id',c.id);
+  if(error){if(st)st.textContent='Erro ao finalizar: '+error.message;return;}
+  vagaSelecionada=null; await carregarSupabaseLider();
 }
-
 async function carregarTudoCompartilhado(){
   await carregarVinculos();
   let mudou=false;
@@ -440,14 +424,14 @@ function renderPainelAcao(){
       <label>Rota que chegou nesta vaga</label>
       <select id="rotaSelecionada" class="rota-select">
         <option value="">— selecione a rota —</option>
-        ${rotas.map(r=>`<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}</option>`).join('')}
+        ${rotas.map(r=>`<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)} · ${escapeHtml(r.ciclo||cicloAtivo)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}</option>`).join('')}
       </select>
       <div class="limite-note">Só aparecem rotas da transportadora desta vaga que ainda não estão ocupando outra posição.</div>
     </div>
     <div class="acoes-grid">
       <button class="btn-acao rota" onclick="iniciarRotaNaVaga(${vaga.num})" ${rotas.length?'':'disabled'}>Confirmar ROTA NA VAGA · iniciar 30 min</button>
     </div>
-    <div id="statusAcao">${rotas.length?'':'Nenhuma rota disponível para esta transportadora.'}</div>`;
+    <div id="statusAcao">${rotas.length?'':'Nenhuma rota disponível desta transportadora no ciclo selecionado.'}</div>`;
 }
 function renderKpisMini(){
   const vagas = vagasData.filter(v=>v.rua===sessao.rua);
@@ -465,6 +449,7 @@ function renderKpisMini(){
 function computeResumoLider(){
   const map = {}; // sigla -> {transportadora, ondas: {ondaLabel: {nRota: Set(parada)}}}
   rotasData.forEach(r=>{
+    if(String(r.ciclo||'').toUpperCase()!==String(cicloAtivo).toUpperCase() || String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA') return;
     const vinc = vinculoPorTransportadora(r.transportadora);
     if(!vinc) return;
     if(ruaDaSigla(vinc.sigla) !== sessao.rua) return;
@@ -514,8 +499,9 @@ function renderResumoLider(){
 
 // ================= RENDER GERAL =================
 function renderApp(){
+  const cs=document.getElementById('cicloAtivoSelect'); if(cs) cs.value=cicloAtivo;
   document.getElementById('tituloRua').textContent = sessao.rua;
-  document.getElementById('subNome').textContent = sessao.nome;
+  document.getElementById('subNome').textContent = `${sessao.nome} · ${cicloAtivo}`;
   renderKpisMini();
   renderVagasGrid();
   renderPainelAcao();
@@ -550,6 +536,9 @@ async function init(){
   }, 3000);
 }
 init();
+</script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>setTimeout(async()=>{await carregarSupabaseLider();iniciarRealtimeLider();},600));
 </script>
 </body>
 </html>
