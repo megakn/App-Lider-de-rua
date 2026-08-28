@@ -624,6 +624,10 @@ function computeResumoLider(){
 }
 function renderResumoLider(){
   const el = document.getElementById('resumoLider');
+  // guarda a rolagem horizontal atual de cada transportadora antes de redesenhar, pra não
+  // voltar pro início a cada atualização automática (era isso que "travava" a rolagem).
+  const scrollPos = {};
+  el.querySelectorAll('.onda-colunas[data-sigla]').forEach(div=>{ scrollPos[div.dataset.sigla]=div.scrollLeft; });
   const {map, sacasPorChave} = computeResumoLider();
   const siglas = Object.keys(map);
   if(!siglas.length){ el.innerHTML = '<div class="empty">Nenhuma rota importada ainda pra essa rua.</div>'; return; }
@@ -656,9 +660,14 @@ function renderResumoLider(){
         <b>${escapeHtml(d.transportadora)}</b>
         <span class="qtd">${totalRotas} rota(s)</span>
       </div>
-      <div class="onda-colunas">${colunas}</div>
+      <div class="onda-colunas" data-sigla="${escapeHtml(sigla)}">${colunas}</div>
     </div>`;
   }).join('');
+  // restaura a rolagem de cada bloco que já existia antes de redesenhar
+  el.querySelectorAll('.onda-colunas[data-sigla]').forEach(div=>{
+    const pos=scrollPos[div.dataset.sigla];
+    if(pos) div.scrollLeft=pos;
+  });
 }
 
 // ================= RENDER GERAL =================
