@@ -451,6 +451,10 @@ function renderVagasGrid(){
 function renderPainelAcao(){
   const el = document.getElementById('painelAcao');
   if(vagaSelecionada===null){ el.style.display='none'; el.innerHTML=''; return; }
+  // Se o líder estiver com o campo de rota focado/aberto, não redesenha agora —
+  // reconstruir o <select> no meio da escolha é o que fazia a lista de rotas fechar sozinha.
+  const selAtual = document.getElementById('rotaSelecionada');
+  if(selAtual && document.activeElement === selAtual) return;
   const vaga = vagasData.find(v=>v.num===vagaSelecionada);
   const transp=transportadoraDaVaga(vaga);
   const ativo=chamadoAtivoNaVaga(vaga.num);
