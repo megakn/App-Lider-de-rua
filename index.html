@@ -106,6 +106,9 @@
   .resumo-table td.rota{font-family:'Roboto Mono',monospace;font-weight:700;}
   .resumo-table td.parada{color:var(--teal-600);font-weight:700;}
   .saca-mark{display:inline-block;font-size:9px;font-weight:900;padding:2px 6px;border-radius:5px;background:#FFF7ED;color:#9A3412;border:1px solid #FED7AA;margin-left:4px;letter-spacing:.03em;}
+  .saca-lista{margin-top:4px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:7px;padding:6px 8px;}
+  .saca-lista-head{font-size:9px;font-weight:900;letter-spacing:.05em;color:#9A3412;text-transform:uppercase;margin-bottom:3px;}
+  .saca-lista-item{font-size:12px;font-weight:800;color:#9A3412;font-family:'Roboto Mono',monospace;line-height:1.6;}
   .aviso-saca-rota{margin-top:8px;padding:9px 11px;border-radius:8px;background:#FFF7ED;border:1.5px solid #FED7AA;color:#9A3412;font-size:12.5px;font-weight:700;}
   .alerta-aduana-sirene{margin-bottom:14px;padding:12px 14px;border-radius:10px;background:#FEF2F2;border:1.5px solid #FCA5A5;color:#991B1B;font-size:13px;font-weight:800;line-height:1.5;animation:pulseAlertaAduana 1.1s infinite;}
   @keyframes pulseAlertaAduana{0%{box-shadow:0 0 0 0 rgba(220,38,38,.45);}70%{box-shadow:0 0 0 10px rgba(220,38,38,0);}100%{box-shadow:0 0 0 0 rgba(220,38,38,0);}}
@@ -395,14 +398,14 @@ function transportadoraDaVaga(vaga){
   const vinc=vinculos.find(v=>v.sigla===vaga.sigla);
   return vinc ? vinc.nome : vaga.sigla;
 }
-function rotaTemSaca(nRota, transportadora){
-  if(!nRota) return false;
+function sacasDaRota(nRota, transportadora){
+  if(!nRota) return [];
   const chave=String(transportadora||'').toUpperCase().trim()+'|'+String(nRota||'').trim();
-  return rotasData.some(r=>
+  return rotasData.filter(r=>
     String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA' &&
     String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() &&
     (String(r.transportadora||'').toUpperCase().trim()+'|'+String(r.nRota||'').trim())===chave
-  );
+  ).map(r=>r.parada||r.gaiola||r.nRota);
 }
 function rotasDisponiveisParaVaga(vaga){
   if(!vaga) return [];
@@ -427,10 +430,10 @@ function verificarSacaSelecionada(nRota){
   if(!nRota){ aviso.innerHTML=''; aviso.className=''; return; }
   const vaga=vagasData.find(v=>v.num===vagaSelecionada);
   const vinc=vaga?vinculos.find(v=>v.sigla===vaga.sigla):null;
-  const temSaca = vinc ? rotaTemSaca(nRota, vinc.nome) : false;
-  if(temSaca){
+  const sacasR = vinc ? sacasDaRota(nRota, vinc.nome) : [];
+  if(sacasR.length){
     aviso.className='aviso-saca-rota';
-    aviso.innerHTML='🧺 <b>Essa rota também tem SACA</b> — avise quem for buscar pra trazer junto.';
+    aviso.innerHTML=`🧺 <b>Essa rota tem ${sacasR.length} saca(s)</b> — avise quem for buscar pra trazer junto:<div class="saca-lista">${sacasR.map(s=>`<div class="saca-lista-item">${escapeHtml(s)}</div>`).join('')}</div>`;
   }else{
     aviso.className=''; aviso.innerHTML='';
   }
@@ -530,13 +533,14 @@ function renderPainelAcao(){
   el.style.display = 'block';
   if(ativo){
     const aduana=String(ativo.status||'').toLowerCase()==='aduana';
-    const temSacaAtivo=rotaTemSaca(ativo.nRota, ativo.transportadora);
+    const sacasAtivo=sacasDaRota(ativo.nRota, ativo.transportadora);
     el.innerHTML = `
       <div class="titulo-vaga">Vaga ${vaga.num} · ${vaga.sigla}</div>
       <div class="info-vaga">${escapeHtml(transp)} · ${escapeHtml(vaga.rua)}</div>
       <div class="rota-ativa-box ${aduana?'aduana':''}">
-        <div class="rota-ativa-top"><b>${escapeHtml(ativo.nRota||'—')}${temSacaAtivo?' <span class="saca-mark">🧺 SACA</span>':''}</b><span class="cronometro" data-cronometro-vaga="${vaga.num}">${formatarTempo(tempoNaVagaMs(ativo))}</span></div>
+        <div class="rota-ativa-top"><b>${escapeHtml(ativo.nRota||'—')}${sacasAtivo.length?` <span class="saca-mark">🧺 ${sacasAtivo.length} saca(s)</span>`:''}</b><span class="cronometro" data-cronometro-vaga="${vaga.num}">${formatarTempo(tempoNaVagaMs(ativo))}</span></div>
         <div class="meta-processo"><b>${aduana?'ADUANA':'ROTA NA VAGA'}</b><br>${ativo.onda?escapeHtml(ativo.onda)+' · ':''}${ativo.parada?escapeHtml(ativo.parada)+' paradas · ':''}Tempo total ocupando a vaga · limite operacional 30 min${ativo.bairros?`<br><span style="font-weight:600">Bairros: ${escapeHtml(ativo.bairros)}</span>`:''}</div>
+        ${sacasAtivo.length?`<div class="saca-lista"><div class="saca-lista-head">🧺 Saca (${sacasAtivo.length})</div>${sacasAtivo.map(s=>`<div class="saca-lista-item">${escapeHtml(s)}</div>`).join('')}</div>`:''}
         ${aduana?`<div class="aduana-sub-cron ${tempoEmAduanaMs(ativo)>=LIMITE_ADUANA_MS?'excedido':''}" data-cronometro-aduana="${vaga.num}">Tempo em aduana: ${formatarTempo(tempoEmAduanaMs(ativo))} · limite 7 min</div>`:''}
       </div>
       <div class="acoes-grid">
@@ -554,7 +558,7 @@ function renderPainelAcao(){
       <label>Rota que chegou nesta vaga</label>
       <select id="rotaSelecionada" class="rota-select" onchange="verificarSacaSelecionada(this.value)">
         <option value="">— selecione a rota —</option>
-        ${rotas.map(r=>`<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)} · ${escapeHtml(r.ciclo||cicloAtivo)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}${rotaTemSaca(r.nRota,r.transportadora)?' · 🧺 SACA':''}</option>`).join('')}
+        ${rotas.map(r=>{const sacasR=sacasDaRota(r.nRota,r.transportadora);return `<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)} · ${escapeHtml(r.ciclo||cicloAtivo)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}${sacasR.length?' · 🧺 '+sacasR.length+' saca(s)':''}</option>`;}).join('')}
       </select>
       <div id="avisoSacaRota"></div>
       <div class="limite-note">Só aparecem rotas da transportadora desta vaga que ainda não estão ocupando outra posição.</div>
@@ -580,8 +584,13 @@ function renderKpisMini(){
 function computeResumoLider(){
   const map = {}; // sigla -> {transportadora, ondas: {ondaLabel: {nRota: Set(parada)}}}
   const sacasHoje = rotasData.filter(r=>String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() && String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA');
-  // chave transportadora+nRota das sacas de hoje — usada pra marcar a rota normal correspondente
-  const rotasComSaca = new Set(sacasHoje.filter(s=>s.nRota).map(s=>String(s.transportadora||'').toUpperCase().trim()+'|'+String(s.nRota||'').trim()));
+  // chave transportadora+nRota -> lista dos identificadores das sacas de hoje (pra mostrar quais são, visível, sem depender de hover)
+  const sacasPorChave = new Map();
+  sacasHoje.filter(s=>s.nRota).forEach(s=>{
+    const chave=String(s.transportadora||'').toUpperCase().trim()+'|'+String(s.nRota||'').trim();
+    if(!sacasPorChave.has(chave)) sacasPorChave.set(chave, []);
+    sacasPorChave.get(chave).push(s.parada||s.gaiola||s.nRota);
+  });
 
   rotasData.forEach(r=>{
     if(String(r.ciclo||'').toUpperCase()!==String(cicloAtivo).toUpperCase() || String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA') return;
@@ -597,7 +606,8 @@ function computeResumoLider(){
   });
 
   // Saca avulsa (número que não bate com nenhuma rota normal já lançada) também entra na lista,
-  // marcada como saca, pra não ficar escondida do líder.
+  // marcada como saca, pra não ficar escondida do líder. A lista de quais sacas são já aparece
+  // no bloco dedicado (sacasPorChave), então aqui a coluna Parada fica em branco pra não repetir.
   sacasHoje.forEach(s=>{
     const vinc = vinculoPorTransportadora(s.transportadora);
     if(!vinc || ruaDaSigla(vinc.sigla)!==sessao.rua) return;
@@ -608,14 +618,13 @@ function computeResumoLider(){
     const grupo = map[vinc.sigla];
     if(!grupo.ondas[ondaLabel]) grupo.ondas[ondaLabel] = {};
     if(!grupo.ondas[ondaLabel][s.nRota]) grupo.ondas[ondaLabel][s.nRota] = new Set();
-    if(s.parada) grupo.ondas[ondaLabel][s.nRota].add(s.parada);
   });
 
-  return {map, rotasComSaca};
+  return {map, sacasPorChave};
 }
 function renderResumoLider(){
   const el = document.getElementById('resumoLider');
-  const {map, rotasComSaca} = computeResumoLider();
+  const {map, sacasPorChave} = computeResumoLider();
   const siglas = Object.keys(map);
   if(!siglas.length){ el.innerHTML = '<div class="empty">Nenhuma rota importada ainda pra essa rua.</div>'; return; }
   el.innerHTML = siglas.map(sigla=>{
@@ -630,8 +639,10 @@ function renderResumoLider(){
         const paradas = rotasObj[nRota];
         const paradaTxt = paradas.size ? [...paradas].join(', ') : '—';
         const chaveSaca = String(d.transportadora||'').toUpperCase().trim()+'|'+String(nRota||'').trim();
-        const temSaca = rotasComSaca.has(chaveSaca);
-        return `<tr><td class="rota">${escapeHtml(nRota||'—')}${temSaca?' <span class="saca-mark" title="Essa rota também tem saca — avisar quem for buscar">🧺 SACA</span>':''}</td><td class="parada">${escapeHtml(paradaTxt)}</td></tr>`;
+        const listaSacas = sacasPorChave.get(chaveSaca);
+        const temSaca = listaSacas && listaSacas.length;
+        const sacaBloco = temSaca ? `<div class="saca-lista"><div class="saca-lista-head">🧺 Saca (${listaSacas.length})</div>${listaSacas.map(s=>`<div class="saca-lista-item">${escapeHtml(s)}</div>`).join('')}</div>` : '';
+        return `<tr><td class="rota">${escapeHtml(nRota||'—')}${temSaca?` <span class="saca-mark">🧺 ${listaSacas.length}</span>`:''}</td><td class="parada">${escapeHtml(paradaTxt)}${sacaBloco}</td></tr>`;
       }).join('');
       return `<div class="onda-col">
         <div class="onda-title">${escapeHtml(ondaLabel)} <span class="qtd">— ${rotasList.length} rota(s)</span></div>
