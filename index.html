@@ -441,7 +441,7 @@ function renderVagasGrid(){
     const info = STATUS_INFO[st];
     const sel = v.num===vagaSelecionada ? 'selecionada' : '';
     const ativo=chamadoAtivoNaVaga(v.num);
-    const extra=ativo ? `<span style="display:block;font-size:7px;font-weight:800;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ativo.nRota||'')}</span><span style="display:block;font-size:8px;font-weight:800;margin-top:1px">${formatarTempo(tempoNaVagaMs(ativo))}</span>` : '';
+    const extra=ativo ? `<span style="display:block;font-size:7px;font-weight:800;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ativo.nRota||'')}</span><span class="chip-cron" data-cron-chip="${v.num}" style="display:block;font-size:8px;font-weight:800;margin-top:1px">${formatarTempo(tempoNaVagaMs(ativo))}</span>` : '';
     return `<div class="vaga-chip ${sel}" style="background:${cor.bg};color:${cor.fg}" onclick="selecionarVaga(${v.num})">
       <span class="vaga-dot" style="background:${info.hex}"></span>
       <span class="num">${v.num}</span><span class="sigla">${v.sigla}</span>${extra}
@@ -575,10 +575,11 @@ async function init(){
   popularRuaOpcoes();
   await carregarSessao();
   if(sessao && sessao.rua && sessao.nome){
-    await registrarLider();
-    await carregarTudoCompartilhado();
-    mostrarApp();
-    renderApp();
+    // Pré-preenche com a última rua/nome usados, mas deixa a tela de entrada visível —
+    // é só tocar em "Entrar" pra confirmar (ou trocar, se for outro líder no aparelho).
+    escolherRua(sessao.rua);
+    document.getElementById('nomeInput').value = sessao.nome;
+    validarEntrada();
   }
   setInterval(()=>{
     if(!sessao) return;
@@ -586,13 +587,17 @@ async function init(){
       const c=chamadoAtivoNaVaga(Number(el.dataset.cronometroVaga));
       if(c) el.textContent=formatarTempo(tempoNaVagaMs(c));
     });
-    renderVagasGrid();
+    document.querySelectorAll('[data-cron-chip]').forEach(el=>{
+      const c=chamadoAtivoNaVaga(Number(el.dataset.cronChip));
+      if(c) el.textContent=formatarTempo(tempoNaVagaMs(c));
+    });
   }, 1000);
+  // O poll é só um reforço — quem traz os dados na hora é o realtime (iniciarRealtimeLider).
   setInterval(async ()=>{
     if(!sessao) return;
     await carregarTudoCompartilhado();
     renderApp();
-  }, 3000);
+  }, 6000);
   setInterval(()=>{ if(sessao) registrarLider(); }, 5*60*1000);
 }
 init();
