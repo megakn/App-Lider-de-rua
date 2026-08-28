@@ -48,10 +48,15 @@
 
   /* ===== Vagas grid ===== */
   .vagas-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:7px;}
-  .vaga-chip{position:relative;border-radius:9px;padding:8px 4px 7px;text-align:center;font-family:'Roboto Mono',monospace;border:1.5px solid rgba(0,0,0,.08);cursor:pointer;}
+  .vaga-chip{position:relative;border-radius:9px;padding:8px 4px 7px;text-align:center;font-family:'Roboto Mono',monospace;border:1.5px solid rgba(0,0,0,.08);cursor:pointer;transition:opacity .15s;}
   .vaga-chip.selecionada{outline:3px solid var(--navy-900);outline-offset:1px;}
+  .vaga-chip.match-busca{outline:3px solid var(--teal-600);outline-offset:1px;}
+  .vaga-chip.dim-busca{opacity:.22;}
   .vaga-chip .num{font-size:14px;font-weight:800;line-height:1;}
   .vaga-chip .sigla{font-size:8px;font-weight:700;opacity:.9;margin-top:2px;display:block;}
+  .busca-rota-wrap{margin-bottom:10px;}
+  .busca-rota-wrap input{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;background:var(--surface-alt);font:700 14px 'Roboto Mono',monospace;color:var(--navy-900);}
+  .busca-rota-hint{font-size:11px;color:var(--muted);margin-top:5px;min-height:14px;}
   .vaga-dot{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 1.5px #fff;}
 
   .painel-acao{margin-top:14px;padding-top:14px;border-top:1.5px dashed var(--border);}
@@ -76,6 +81,8 @@
   .rota-ativa-top b{font:800 15px 'Roboto Mono',monospace;}
   .cronometro{font:800 18px 'Roboto Mono',monospace;color:#166534;}
   .rota-ativa-box.aduana .cronometro{color:#7E22CE;}
+  .aduana-sub-cron{margin-top:8px;padding:7px 9px;border-radius:7px;background:#F3E8FF;color:#7E22CE;font:800 12px 'Roboto Mono',monospace;}
+  .aduana-sub-cron.excedido{background:#FEE2E2;color:#991B1B;}
   .meta-processo{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45;}
   .limite-note{font-size:11px;color:var(--muted);margin-top:6px;}
   .btn-acao.rota{background:#16A34A;grid-column:1 / -1;}
@@ -98,6 +105,10 @@
   .resumo-table th{color:var(--muted);font-weight:700;text-transform:uppercase;font-size:9.5px;letter-spacing:.05em;}
   .resumo-table td.rota{font-family:'Roboto Mono',monospace;font-weight:700;}
   .resumo-table td.parada{color:var(--teal-600);font-weight:700;}
+  .saca-mark{display:inline-block;font-size:9px;font-weight:900;padding:2px 6px;border-radius:5px;background:#FFF7ED;color:#9A3412;border:1px solid #FED7AA;margin-left:4px;letter-spacing:.03em;}
+  .aviso-saca-rota{margin-top:8px;padding:9px 11px;border-radius:8px;background:#FFF7ED;border:1.5px solid #FED7AA;color:#9A3412;font-size:12.5px;font-weight:700;}
+  .alerta-aduana-sirene{margin-bottom:14px;padding:12px 14px;border-radius:10px;background:#FEF2F2;border:1.5px solid #FCA5A5;color:#991B1B;font-size:13px;font-weight:800;line-height:1.5;animation:pulseAlertaAduana 1.1s infinite;}
+  @keyframes pulseAlertaAduana{0%{box-shadow:0 0 0 0 rgba(220,38,38,.45);}70%{box-shadow:0 0 0 10px rgba(220,38,38,0);}100%{box-shadow:0 0 0 0 rgba(220,38,38,0);}}
 
   .ciclo-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 10px;margin-bottom:12px;}
   .ciclo-bar label{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--muted);letter-spacing:.05em;}
@@ -136,10 +147,16 @@
 
   <div class="ciclo-bar"><label>Ciclo em operação</label><select id="cicloAtivoSelect" onchange="trocarCicloAtivo(this.value)"><option>AM1</option><option>PM1</option><option>SD</option><option>CHP</option></select></div>
 
+  <div id="alertaAduana" class="alerta-aduana-sirene" style="display:none;"></div>
+
   <div class="kpis-mini" id="kpisMini"></div>
 
   <div class="card">
     <h2>Operação da vaga</h2>
+    <div class="busca-rota-wrap">
+      <input id="buscaRotaVaga" placeholder="Buscar rota que já está numa vaga (ex: B5, A2)..." oninput="buscarRotaVaga(this.value)" autocomplete="off">
+      <div class="busca-rota-hint" id="buscaRotaHint"></div>
+    </div>
     <div class="vagas-grid" id="vagasGrid"></div>
     <div class="painel-acao" id="painelAcao" style="display:none;"></div>
   </div>
@@ -284,6 +301,10 @@ async function trocar(){
   document.getElementById('entrada').style.display = 'flex';
   document.getElementById('nomeInput').value = '';
   ruaEscolhida = null;
+  vagaSelecionada = null;
+  filtroRotaVaga = '';
+  const bi=document.getElementById('buscaRotaVaga'); if(bi) bi.value='';
+  const bh=document.getElementById('buscaRotaHint'); if(bh) bh.textContent='';
   RUAS_LIDER.forEach(x=>document.getElementById('opt-'+x.replace(/[^a-zA-Z0-9]/g,'_'))?.classList.remove('selecionada'));
   validarEntrada();
 }
@@ -316,7 +337,7 @@ let rotasData = [];
 const ROTAS_KEY = 'rotas-importadas';
 const CICLO_ATIVO_KEY='ciclo-ativo-lider';
 let cicloAtivo=localStorage.getItem(CICLO_ATIVO_KEY)||'AM1';
-function trocarCicloAtivo(c){ cicloAtivo=c; localStorage.setItem(CICLO_ATIVO_KEY,c); vagaSelecionada=null; renderApp(); }
+function trocarCicloAtivo(c){ cicloAtivo=c; localStorage.setItem(CICLO_ATIVO_KEY,c); vagaSelecionada=null; filtroRotaVaga=''; const bi=document.getElementById('buscaRotaVaga'); if(bi) bi.value=''; const bh=document.getElementById('buscaRotaHint'); if(bh) bh.textContent=''; renderApp(); }
 async function carregarRotas(){
   try{
     const {data,error}=await db.from('planejamento').select('*').eq('data_operacao',hojeISO());
@@ -359,6 +380,11 @@ function getStatus(num){
 }
 function inicioDaVaga(c){ return Number(c && (c.inicioVaga||c.chegouEm||c.criadoEm)) || Date.now(); }
 function tempoNaVagaMs(c){ return Math.max(0, Date.now()-inicioDaVaga(c)); }
+const LIMITE_ADUANA_MS = 7*60*1000;
+function tempoEmAduanaMs(c){
+  if(!c || !c.aduanaEm) return 0;
+  return Math.max(0, Date.now()-Number(c.aduanaEm));
+}
 function formatarTempo(ms){
   const total=Math.floor(ms/1000), min=Math.floor(total/60), seg=total%60;
   return `${String(min).padStart(2,'0')}:${String(seg).padStart(2,'0')}`;
@@ -368,6 +394,15 @@ function transportadoraDaVaga(vaga){
   if(vaga.sigla==='VUC') return 'EXPEDIÇÃO / VUC';
   const vinc=vinculos.find(v=>v.sigla===vaga.sigla);
   return vinc ? vinc.nome : vaga.sigla;
+}
+function rotaTemSaca(nRota, transportadora){
+  if(!nRota) return false;
+  const chave=String(transportadora||'').toUpperCase().trim()+'|'+String(nRota||'').trim();
+  return rotasData.some(r=>
+    String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA' &&
+    String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() &&
+    (String(r.transportadora||'').toUpperCase().trim()+'|'+String(r.nRota||'').trim())===chave
+  );
 }
 function rotasDisponiveisParaVaga(vaga){
   if(!vaga) return [];
@@ -385,6 +420,20 @@ function rotasDisponiveisParaVaga(vaga){
   return [...unicas.values()]
     .filter(r=>!chamadoAtivoDaRota(r.nRota))
     .sort((a,b)=>String(a.onda||'').localeCompare(String(b.onda||''),'pt-BR',{numeric:true}) || String(a.nRota).localeCompare(String(b.nRota),'pt-BR',{numeric:true}));
+}
+function verificarSacaSelecionada(nRota){
+  const aviso=document.getElementById('avisoSacaRota');
+  if(!aviso) return;
+  if(!nRota){ aviso.innerHTML=''; aviso.className=''; return; }
+  const vaga=vagasData.find(v=>v.num===vagaSelecionada);
+  const vinc=vaga?vinculos.find(v=>v.sigla===vaga.sigla):null;
+  const temSaca = vinc ? rotaTemSaca(nRota, vinc.nome) : false;
+  if(temSaca){
+    aviso.className='aviso-saca-rota';
+    aviso.innerHTML='🧺 <b>Essa rota também tem SACA</b> — avise quem for buscar pra trazer junto.';
+  }else{
+    aviso.className=''; aviso.innerHTML='';
+  }
 }
 async function iniciarRotaNaVaga(num){
   const vaga=vagasData.find(v=>v.num===Number(num));
@@ -427,6 +476,21 @@ async function carregarTudoCompartilhado(){
 
 // ================= UI: VAGAS DA RUA =================
 let vagaSelecionada = null;
+let filtroRotaVaga = '';
+function buscarRotaVaga(valor){
+  filtroRotaVaga = (valor||'').trim().toUpperCase();
+  const hint = document.getElementById('buscaRotaHint');
+  if(!filtroRotaVaga){ if(hint) hint.textContent=''; renderVagasGrid(); return; }
+  const vagas = vagasData.filter(v=>v.rua===sessao.rua);
+  const bate = v=>{ const c=chamadoAtivoNaVaga(v.num); return c && String(c.nRota||'').toUpperCase().startsWith(filtroRotaVaga); };
+  const encontradas = vagas.filter(bate);
+  if(hint) hint.textContent = encontradas.length
+    ? `${encontradas.length} vaga(s) com rota "${filtroRotaVaga}...": ${encontradas.map(v=>v.num).join(', ')}`
+    : `Nenhuma vaga da sua rua está com uma rota "${filtroRotaVaga}..." agora.`;
+  // Se sobrou só uma vaga com essa rota, já abre o painel de ação dela (Aduana/Finalizar prontos pra usar).
+  if(encontradas.length===1){ vagaSelecionada = encontradas[0].num; renderPainelAcao(); }
+  renderVagasGrid();
+}
 function selecionarVaga(num){
   vagaSelecionada = (vagaSelecionada===num) ? null : num;
   renderVagasGrid();
@@ -441,8 +505,13 @@ function renderVagasGrid(){
     const info = STATUS_INFO[st];
     const sel = v.num===vagaSelecionada ? 'selecionada' : '';
     const ativo=chamadoAtivoNaVaga(v.num);
+    let filtroClasse='';
+    if(filtroRotaVaga){
+      const bate = ativo && String(ativo.nRota||'').toUpperCase().startsWith(filtroRotaVaga);
+      filtroClasse = bate ? 'match-busca' : 'dim-busca';
+    }
     const extra=ativo ? `<span style="display:block;font-size:7px;font-weight:800;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ativo.nRota||'')}</span><span class="chip-cron" data-cron-chip="${v.num}" style="display:block;font-size:8px;font-weight:800;margin-top:1px">${formatarTempo(tempoNaVagaMs(ativo))}</span>` : '';
-    return `<div class="vaga-chip ${sel}" style="background:${cor.bg};color:${cor.fg}" onclick="selecionarVaga(${v.num})">
+    return `<div class="vaga-chip ${sel} ${filtroClasse}" style="background:${cor.bg};color:${cor.fg}" onclick="selecionarVaga(${v.num})">
       <span class="vaga-dot" style="background:${info.hex}"></span>
       <span class="num">${v.num}</span><span class="sigla">${v.sigla}</span>${extra}
     </div>`;
@@ -461,12 +530,14 @@ function renderPainelAcao(){
   el.style.display = 'block';
   if(ativo){
     const aduana=String(ativo.status||'').toLowerCase()==='aduana';
+    const temSacaAtivo=rotaTemSaca(ativo.nRota, ativo.transportadora);
     el.innerHTML = `
       <div class="titulo-vaga">Vaga ${vaga.num} · ${vaga.sigla}</div>
       <div class="info-vaga">${escapeHtml(transp)} · ${escapeHtml(vaga.rua)}</div>
       <div class="rota-ativa-box ${aduana?'aduana':''}">
-        <div class="rota-ativa-top"><b>${escapeHtml(ativo.nRota||'—')}</b><span class="cronometro" data-cronometro-vaga="${vaga.num}">${formatarTempo(tempoNaVagaMs(ativo))}</span></div>
+        <div class="rota-ativa-top"><b>${escapeHtml(ativo.nRota||'—')}${temSacaAtivo?' <span class="saca-mark">🧺 SACA</span>':''}</b><span class="cronometro" data-cronometro-vaga="${vaga.num}">${formatarTempo(tempoNaVagaMs(ativo))}</span></div>
         <div class="meta-processo"><b>${aduana?'ADUANA':'ROTA NA VAGA'}</b><br>${ativo.onda?escapeHtml(ativo.onda)+' · ':''}${ativo.parada?escapeHtml(ativo.parada)+' paradas · ':''}Tempo total ocupando a vaga · limite operacional 30 min${ativo.bairros?`<br><span style="font-weight:600">Bairros: ${escapeHtml(ativo.bairros)}</span>`:''}</div>
+        ${aduana?`<div class="aduana-sub-cron ${tempoEmAduanaMs(ativo)>=LIMITE_ADUANA_MS?'excedido':''}" data-cronometro-aduana="${vaga.num}">Tempo em aduana: ${formatarTempo(tempoEmAduanaMs(ativo))} · limite 7 min</div>`:''}
       </div>
       <div class="acoes-grid">
         <button class="btn-acao aduana" onclick="marcarAduana(${vaga.num})">Aduana<br>(conferência LOG)</button>
@@ -481,10 +552,11 @@ function renderPainelAcao(){
     <div class="info-vaga">${escapeHtml(transp)} · ${escapeHtml(vaga.rua)} · Vaga livre</div>
     <div class="rota-select-wrap">
       <label>Rota que chegou nesta vaga</label>
-      <select id="rotaSelecionada" class="rota-select">
+      <select id="rotaSelecionada" class="rota-select" onchange="verificarSacaSelecionada(this.value)">
         <option value="">— selecione a rota —</option>
-        ${rotas.map(r=>`<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)} · ${escapeHtml(r.ciclo||cicloAtivo)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}</option>`).join('')}
+        ${rotas.map(r=>`<option value="${escapeHtml(r.nRota)}">${escapeHtml(r.nRota)} · ${escapeHtml(r.ciclo||cicloAtivo)}${r.onda?' · '+escapeHtml(r.onda):''}${r.parada?' · '+escapeHtml(r.parada)+' paradas':''}${rotaTemSaca(r.nRota,r.transportadora)?' · 🧺 SACA':''}</option>`).join('')}
       </select>
+      <div id="avisoSacaRota"></div>
       <div class="limite-note">Só aparecem rotas da transportadora desta vaga que ainda não estão ocupando outra posição.</div>
     </div>
     <div class="acoes-grid">
@@ -507,23 +579,43 @@ function renderKpisMini(){
 // ================= RESUMO POR ONDA (só a rua da líder) =================
 function computeResumoLider(){
   const map = {}; // sigla -> {transportadora, ondas: {ondaLabel: {nRota: Set(parada)}}}
+  const sacasHoje = rotasData.filter(r=>String(r.ciclo||'').toUpperCase()===String(cicloAtivo).toUpperCase() && String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA');
+  // chave transportadora+nRota das sacas de hoje — usada pra marcar a rota normal correspondente
+  const rotasComSaca = new Set(sacasHoje.filter(s=>s.nRota).map(s=>String(s.transportadora||'').toUpperCase().trim()+'|'+String(s.nRota||'').trim()));
+
   rotasData.forEach(r=>{
     if(String(r.ciclo||'').toUpperCase()!==String(cicloAtivo).toUpperCase() || String(r.tipoOperacao||'ROTA').toUpperCase()==='SACA') return;
     const vinc = vinculoPorTransportadora(r.transportadora);
     if(!vinc) return;
     if(ruaDaSigla(vinc.sigla) !== sessao.rua) return;
-    const ondaLabel = (r.onda && r.onda.trim()) ? r.onda.trim() : 'Sem onda (saca)';
+    const ondaLabel = (r.onda && r.onda.trim()) ? r.onda.trim() : 'Sem onda';
     if(!map[vinc.sigla]) map[vinc.sigla] = {transportadora:r.transportadora, ondas:{}};
     const grupo = map[vinc.sigla];
     if(!grupo.ondas[ondaLabel]) grupo.ondas[ondaLabel] = {};
     if(!grupo.ondas[ondaLabel][r.nRota]) grupo.ondas[ondaLabel][r.nRota] = new Set();
     if(r.parada) grupo.ondas[ondaLabel][r.nRota].add(r.parada);
   });
-  return map;
+
+  // Saca avulsa (número que não bate com nenhuma rota normal já lançada) também entra na lista,
+  // marcada como saca, pra não ficar escondida do líder.
+  sacasHoje.forEach(s=>{
+    const vinc = vinculoPorTransportadora(s.transportadora);
+    if(!vinc || ruaDaSigla(vinc.sigla)!==sessao.rua) return;
+    const jaTemRota = map[vinc.sigla] && Object.values(map[vinc.sigla].ondas).some(rotas=>rotas[s.nRota]);
+    if(jaTemRota) return; // já vai aparecer marcada em cima da rota normal
+    const ondaLabel = (s.onda && s.onda.trim()) ? s.onda.trim() : 'Sem onda';
+    if(!map[vinc.sigla]) map[vinc.sigla] = {transportadora:s.transportadora, ondas:{}};
+    const grupo = map[vinc.sigla];
+    if(!grupo.ondas[ondaLabel]) grupo.ondas[ondaLabel] = {};
+    if(!grupo.ondas[ondaLabel][s.nRota]) grupo.ondas[ondaLabel][s.nRota] = new Set();
+    if(s.parada) grupo.ondas[ondaLabel][s.nRota].add(s.parada);
+  });
+
+  return {map, rotasComSaca};
 }
 function renderResumoLider(){
   const el = document.getElementById('resumoLider');
-  const map = computeResumoLider();
+  const {map, rotasComSaca} = computeResumoLider();
   const siglas = Object.keys(map);
   if(!siglas.length){ el.innerHTML = '<div class="empty">Nenhuma rota importada ainda pra essa rua.</div>'; return; }
   el.innerHTML = siglas.map(sigla=>{
@@ -537,7 +629,9 @@ function renderResumoLider(){
       const linhas = rotasList.map(nRota=>{
         const paradas = rotasObj[nRota];
         const paradaTxt = paradas.size ? [...paradas].join(', ') : '—';
-        return `<tr><td class="rota">${escapeHtml(nRota||'—')}</td><td class="parada">${escapeHtml(paradaTxt)}</td></tr>`;
+        const chaveSaca = String(d.transportadora||'').toUpperCase().trim()+'|'+String(nRota||'').trim();
+        const temSaca = rotasComSaca.has(chaveSaca);
+        return `<tr><td class="rota">${escapeHtml(nRota||'—')}${temSaca?' <span class="saca-mark" title="Essa rota também tem saca — avisar quem for buscar">🧺 SACA</span>':''}</td><td class="parada">${escapeHtml(paradaTxt)}</td></tr>`;
       }).join('');
       return `<div class="onda-col">
         <div class="onda-title">${escapeHtml(ondaLabel)} <span class="qtd">— ${rotasList.length} rota(s)</span></div>
@@ -581,6 +675,7 @@ async function init(){
     document.getElementById('nomeInput').value = sessao.nome;
     validarEntrada();
   }
+  document.addEventListener('click', desbloquearAudio, {once:true});
   setInterval(()=>{
     if(!sessao) return;
     document.querySelectorAll('[data-cronometro-vaga]').forEach(el=>{
@@ -591,6 +686,15 @@ async function init(){
       const c=chamadoAtivoNaVaga(Number(el.dataset.cronChip));
       if(c) el.textContent=formatarTempo(tempoNaVagaMs(c));
     });
+    document.querySelectorAll('[data-cronometro-aduana]').forEach(el=>{
+      const c=chamadoAtivoNaVaga(Number(el.dataset.cronometroAduana));
+      if(c){
+        const ms=tempoEmAduanaMs(c);
+        el.textContent='Tempo em aduana: '+formatarTempo(ms)+' · limite 7 min';
+        el.classList.toggle('excedido', ms>=LIMITE_ADUANA_MS);
+      }
+    });
+    verificarAlertasAduana();
   }, 1000);
   // O poll é só um reforço — quem traz os dados na hora é o realtime (iniciarRealtimeLider).
   setInterval(async ()=>{
@@ -602,6 +706,62 @@ async function init(){
 }
 init();
 </script>
+
+<script>
+// ================= ALERTA SONORO · ADUANA ACIMA DE 7 MIN =================
+// O tempo de aduana conta dentro dos mesmos 30 min da vaga (não zera o cronômetro principal).
+// Se a vaga ficar em Aduana por mais de 7 min, avisa com um banner + sirene, repetindo até resolver.
+let audioCtxLider = null;
+function desbloquearAudio(){
+  try{ audioCtxLider = audioCtxLider || new (window.AudioContext||window.webkitAudioContext)(); if(audioCtxLider.state==='suspended') audioCtxLider.resume(); }catch(e){}
+}
+function tocarSireneLider(){
+  try{
+    if(!audioCtxLider) audioCtxLider = new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtxLider.state==='suspended') audioCtxLider.resume();
+    const ctx=audioCtxLider, now=ctx.currentTime;
+    const osc=ctx.createOscillator(), gain=ctx.createGain();
+    osc.type='sine'; osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.35, now+0.05);
+    osc.frequency.setValueAtTime(600, now);
+    osc.frequency.linearRampToValueAtTime(1200, now+0.5);
+    osc.frequency.linearRampToValueAtTime(600, now+1.0);
+    osc.frequency.linearRampToValueAtTime(1200, now+1.5);
+    osc.frequency.linearRampToValueAtTime(600, now+2.0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now+2.05);
+    osc.start(now); osc.stop(now+2.1);
+  }catch(e){ console.error('Erro ao tocar sirene:', e); }
+}
+const REPETIR_SIRENE_MS = 25000;
+let aduanaAlertadasLider = {};
+function verificarAlertasAduana(){
+  if(!sessao) return;
+  const vagas = vagasData.filter(v=>v.rua===sessao.rua);
+  const excedidas = [];
+  vagas.forEach(v=>{
+    const c=chamadoAtivoNaVaga(v.num);
+    if(!c || String(c.status||'').toLowerCase()!=='aduana'){ delete aduanaAlertadasLider[v.num]; return; }
+    const ms=tempoEmAduanaMs(c);
+    if(ms>=LIMITE_ADUANA_MS){
+      excedidas.push({vaga:v.num, nRota:c.nRota, ms});
+      const ultimo=aduanaAlertadasLider[v.num]||0;
+      if(Date.now()-ultimo>=REPETIR_SIRENE_MS){ aduanaAlertadasLider[v.num]=Date.now(); tocarSireneLider(); }
+    }else{
+      delete aduanaAlertadasLider[v.num];
+    }
+  });
+  const banner=document.getElementById('alertaAduana');
+  if(!banner) return;
+  if(excedidas.length){
+    banner.style.display='block';
+    banner.innerHTML='🚨 '+excedidas.map(a=>`Vaga ${a.vaga} · ${escapeHtml(a.nRota||'—')} · Aduana passou de 7 min (${formatarTempo(a.ms)})`).join('<br>🚨 ');
+  }else{
+    banner.style.display='none'; banner.innerHTML='';
+  }
+}
+</script>
+
 <script>
 async function carregarSupabaseLider(){
   if(!sessao) return;
